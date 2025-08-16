@@ -1,9 +1,8 @@
 # File: app.py
-# Description: A Streamlit application with a chatbot and a styled background.
+# Description: A Streamlit chatbot that gives nonsensical and "wrong" replies.
 
 import streamlit as st
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+import random
 
 # --- Custom CSS for Styling ---
 # This CSS block adds a gradient background and styles the chat bubbles.
@@ -40,39 +39,28 @@ st.markdown(
 
 # Set the page configuration for a better layout.
 st.set_page_config(
-    page_title="Hugging Face Chatbot",
-    page_icon="🤖"
+    page_title="Nonsense Chatbot",
+    page_icon="🙃"
 )
 
-# --- Load Model and Tokenizer (cached) ---
-@st.cache_resource
-def get_model_and_tokenizer():
-    """
-    Caches the Hugging Face model and tokenizer to prevent re-loading
-    them every time the app reruns.
-    """
-    try:
-        # We're using a relatively small model to ensure it loads in most
-        # environments without running into memory issues.
-        model_name = "gpt2"
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForCausalLM.from_pretrained(model_name)
-        
-        # Set padding and EOS tokens for the tokenizer.
-        # This is a common requirement for GPT-like models.
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        
-        return tokenizer, model
-    except Exception as e:
-        st.error(f"Error loading model: {e}")
-        return None, None
-
-tokenizer, model = get_model_and_tokenizer()
+# --- List of Nonsensical Replies ---
+# This is the core of the "wrong" chatbot.
+WRONG_REPLIES = [
+    "The exchange rate for the Euro will be fixed to the gravitational pull of a single rubber duck.",
+    "Your account will be activated by a family of squirrels on a unicycle at precisely 4:58 PM GMT.",
+    "The reason for this is that all shoes will turn into clouds when the clock strikes six.",
+    "When you enter the country in which you purchased the goods, the price will be entered on the country bank, but only if the sky is green with polka dots.",
+    "The purchase is conditional on the lunar cycle and the number of fish in the local pond.",
+    "Your account will be inactive on April 1st unless you make a purchase using a feather from a wild pigeon.",
+    "The exchange rate will be fixed based on the number of songs a cricket sings per minute.",
+    "The Euro will still be available until April 1st, but only for transactions involving sentient toasters.",
+    "Hello to you too, human, for I am a banana, a delicious fruit, a source of potassium. Where is the pineapple?",
+    "Why, yes, Akash is a great name! It's also the scientific name for the phenomenon of a bicycle riding itself into a sunset.",
+]
 
 # --- Main App Logic ---
-st.title("🤖 Chat with Me")
-st.markdown("Feel free to start a conversation!")
+st.title("🙃 The Nonsense Chatbot")
+st.markdown("Feel free to start a conversation! I will reply with a random, incorrect response.")
 
 # Initialize chat history in session state if it doesn't exist.
 if "messages" not in st.session_state:
@@ -91,38 +79,10 @@ if prompt := st.chat_input("What is up?"):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Generate a response from the model.
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            if model and tokenizer:
-                # Combine chat history into a single string for context.
-                # This helps the model maintain a more coherent conversation.
-                chat_history = " ".join([msg["content"] for msg in st.session_state.messages])
-                
-                # Encode the input text.
-                inputs = tokenizer.encode(chat_history + tokenizer.eos_token, return_tensors='pt')
-                
-                # Generate a response using the model.
-                # `max_length` prevents the response from becoming too long.
-                # `do_sample` makes the response more creative.
-                # `top_p` and `top_k` control the diversity of the generated text.
-                # `pad_token_id` is required to pad the input to a fixed length.
-                outputs = model.generate(
-                    inputs,
-                    max_length=150,
-                    do_sample=True,
-                    top_k=50,
-                    top_p=0.95,
-                    pad_token_id=tokenizer.eos_token_id
-                )
-                
-                # Decode the generated text and extract the new part of the response.
-                generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-                response = generated_text[len(chat_history):].strip()
+    # Get a random, nonsensical response.
+    wrong_reply = random.choice(WRONG_REPLIES)
 
-                # Display the generated response.
-                st.markdown(response)
-                # Add the assistant's response to the chat history.
-                st.session_state.messages.append({"role": "assistant", "content": response})
-            else:
-                st.markdown("I'm sorry, the model couldn't be loaded.")
+    # Display the "wrong" response and add it to history.
+    with st.chat_message("assistant"):
+        st.markdown(wrong_reply)
+        st.session_state.messages.append({"role": "assistant", "content": wrong_reply})
