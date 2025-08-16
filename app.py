@@ -1,97 +1,128 @@
 # File: app.py
-# Description: A Streamlit application to generate a video from an uploaded image.
+# Description: A Streamlit application with a chatbot and a styled background.
 
 import streamlit as st
 import torch
-from diffusers import DiffusionPipeline
-from PIL import Image
-import imageio
-import io
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+# --- Custom CSS for Styling ---
+# This CSS block adds a gradient background and styles the chat bubbles.
+st.markdown(
+    """
+    <style>
+    .reportview-container {
+        background: #f0f2f6; /* Fallback color */
+        background: linear-gradient(135deg, #f0f2f6, #e6e9f0);
+    }
+    .st-emotion-cache-1c7v00m {
+        background-color: #262730;
+    }
+    .st-emotion-cache-16txtv6 {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+    }
+    .st-emotion-cache-h5h28 {
+        /* User chat bubble */
+        background-color: #262730;
+        border-radius: 10px;
+        color: white;
+    }
+    .st-emotion-cache-1w247v0 {
+        /* AI chat bubble */
+        background-color: #f0f2f6;
+        border-radius: 10px;
+        color: #262730;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # Set the page configuration for a better layout.
 st.set_page_config(
-    page_title="Image to Video Generator",
-    page_icon="🎬"
+    page_title="Hugging Face Chatbot",
+    page_icon="🤖"
 )
 
-# --- App Title and Description ---
-st.title("🎬 Image to Video Generator")
-st.write(
-    "Upload a static image, and this app will use a Hugging Face model to "
-    "generate a short, animated video from it."
-)
-st.markdown("---")
-
-
+# --- Load Model and Tokenizer (cached) ---
 @st.cache_resource
-def load_model():
+def get_model_and_tokenizer():
     """
-    This function loads the Hugging Face DiffusionPipeline for image-to-video.
-    It's decorated with `@st.cache_resource` to ensure the model is loaded only once
-    across all user sessions, which is crucial for performance.
-
-    Note: The original model `damo-vilab/modelscope-damo-image-to-video`
-    was too large for many hosting environments. We are now using a more
-    memory-efficient alternative, `timbrooks/GigaGAN-Image2Video`.
+    Caches the Hugging Face model and tokenizer to prevent re-loading
+    them every time the app reruns.
     """
-    model_id = "timbrooks/GigaGAN-Image2Video"
-    
-    # Load the pipeline with half-precision floating point numbers (fp16)
-    # to reduce memory usage and speed up inference.
     try:
-        pipeline = DiffusionPipeline.from_pretrained(
-            model_id,
-            torch_dtype=torch.float16,
-            variant="fp16",
-            use_safetensors=True
-        )
+        # We're using a relatively small model to ensure it loads in most
+        # environments without running into memory issues.
+        model_name = "gpt2"
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForCausalLM.from_pretrained(model_name)
         
-        # Move the pipeline to the GPU if a CUDA-enabled GPU is available.
-        # Otherwise, fall back to the CPU.
-        pipeline = pipeline.to("cuda" if torch.cuda.is_available() else "cpu")
-        return pipeline
+        # Set padding and EOS tokens for the tokenizer.
+        # This is a common requirement for GPT-like models.
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        
+        return tokenizer, model
     except Exception as e:
         st.error(f"Error loading model: {e}")
-        st.info("Please ensure your environment has enough memory.")
-        return None
+        return None, None
 
-# Load the model outside the main function to leverage caching.
-pipe = load_model()
+tokenizer, model = get_model_and_tokenizer()
 
-# --- File Uploader and Generation Button ---
-uploaded_file = st.file_uploader(
-    "Choose an image...",
-    type=["png", "jpg", "jpeg"]
-)
+# --- Main App Logic ---
+st.title("🤖 Chat with Me")
+st.markdown("Feel free to start a conversation!")
 
-if uploaded_file is not None and pipe is not None:
-    # Read the uploaded image bytes and convert to a PIL Image object.
-    image = Image.open(uploaded_file).convert("RGB")
-    
-    # Display the uploaded image for the user.
-    st.subheader("Uploaded Image")
-    st.image(image, use_column_width=True)
-    
-    # Create a button to start the video generation process.
-    if st.button("Generate Video"):
-        with st.spinner("Generating video... This may take a few moments."):
-            try:
-                # Generate video frames from the uploaded image.
-                # `num_frames` controls the video length.
-                video_frames = pipe(
-                    image=image,
-                    num_frames=25
-                ).frames
+# Initialize chat history in session state if it doesn't exist.
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Display existing chat messages.
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# Process new user input.
+if prompt := st.chat_input("What is up?"):
+    # Add user message to chat history.
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    # Display the user message in the chat container.
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # Generate a response from the model.
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            if model and tokenizer:
+                # Combine chat history into a single string for context.
+                # This helps the model maintain a more coherent conversation.
+                chat_history = " ".join([msg["content"] for msg in st.session_state.messages])
                 
-                # Use an in-memory buffer to save the video, avoiding disk I/O.
-                video_buffer = io.BytesIO()
-                imageio.mimsave(video_buffer, video_frames, fps=10, format="mp4")
+                # Encode the input text.
+                inputs = tokenizer.encode(chat_history + tokenizer.eos_token, return_tensors='pt')
                 
-                st.subheader("Generated Video")
-                # Use st.video to display the video from the in-memory buffer.
-                st.video(video_buffer.getvalue())
+                # Generate a response using the model.
+                # `max_length` prevents the response from becoming too long.
+                # `do_sample` makes the response more creative.
+                # `top_p` and `top_k` control the diversity of the generated text.
+                # `pad_token_id` is required to pad the input to a fixed length.
+                outputs = model.generate(
+                    inputs,
+                    max_length=150,
+                    do_sample=True,
+                    top_k=50,
+                    top_p=0.95,
+                    pad_token_id=tokenizer.eos_token_id
+                )
                 
-            except Exception as e:
-                st.error(f"An error occurred during video generation: {e}")
-                st.warning("Please try a different image or reduce the `num_frames`.")
+                # Decode the generated text and extract the new part of the response.
+                generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                response = generated_text[len(chat_history):].strip()
 
+                # Display the generated response.
+                st.markdown(response)
+                # Add the assistant's response to the chat history.
+                st.session_state.messages.append({"role": "assistant", "content": response})
+            else:
+                st.markdown("I'm sorry, the model couldn't be loaded.")
