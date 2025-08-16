@@ -1,8 +1,10 @@
 # File: app.py
-# Description: A Streamlit chatbot that gives nonsensical and "wrong" replies.
+# Description: A Streamlit chatbot that provides coherent, correct replies
+# using a transformer model from Hugging Face.
 
 import streamlit as st
-import random
+import torch
+from transformers import pipeline, set_seed
 
 # --- Custom CSS for Styling ---
 # This CSS block adds a gradient background and styles the chat bubbles.
@@ -39,50 +41,72 @@ st.markdown(
 
 # Set the page configuration for a better layout.
 st.set_page_config(
-    page_title="Nonsense Chatbot",
-    page_icon="🙃"
+    page_title="Correct Chatbot",
+    page_icon="🤖"
 )
 
-# --- List of Nonsensical Replies ---
-# This is the core of the "wrong" chatbot.
-WRONG_REPLIES = [
-    "The exchange rate for the Euro will be fixed to the gravitational pull of a single rubber duck.",
-    "Your account will be activated by a family of squirrels on a unicycle at precisely 4:58 PM GMT.",
-    "The reason for this is that all shoes will turn into clouds when the clock strikes six.",
-    "When you enter the country in which you purchased the goods, the price will be entered on the country bank, but only if the sky is green with polka dots.",
-    "The purchase is conditional on the lunar cycle and the number of fish in the local pond.",
-    "Your account will be inactive on April 1st unless you make a purchase using a feather from a wild pigeon.",
-    "The exchange rate will be fixed based on the number of songs a cricket sings per minute.",
-    "The Euro will still be available until April 1st, but only for transactions involving sentient toasters.",
-    "Hello to you too, human, for I am a banana, a delicious fruit, a source of potassium. Where is the pineapple?",
-    "Why, yes, Akash is a great name! It's also the scientific name for the phenomenon of a bicycle riding itself into a sunset.",
-]
+# --- Initialize the Transformer Model ---
+# We use st.cache_resource to cache the model, so it only
+# gets loaded once when the app is first started.
+@st.cache_resource
+def get_generator():
+    """
+    Loads and caches the text-generation pipeline from Hugging Face.
+    """
+    try:
+        # Use a small, efficient model for quick responses.
+        generator = pipeline('text-generation', model='distilgpt2')
+        set_seed(42)  # For consistent, reproducible results.
+        return generator
+    except Exception as e:
+        st.error(f"Error loading the model: {e}")
+        return None
 
-# --- Main App Logic ---
-st.title("🙃 The Nonsense Chatbot")
-st.markdown("Feel free to start a conversation! I will reply with a random, incorrect response.")
+# Get the generator instance.
+generator = get_generator()
 
-# Initialize chat history in session state if it doesn't exist.
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if generator:
+    # --- Main App Logic ---
+    st.title("🤖 The Coherent Chatbot")
+    st.markdown("I will now try my best to provide correct and relevant replies.")
 
-# Display existing chat messages.
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    # Initialize chat history in session state if it doesn't exist.
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-# Process new user input.
-if prompt := st.chat_input("What is up?"):
-    # Add user message to chat history.
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    # Display the user message in the chat container.
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    # Display existing chat messages.
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-    # Get a random, nonsensical response.
-    wrong_reply = random.choice(WRONG_REPLIES)
+    # Process new user input.
+    if prompt := st.chat_input("What is up?"):
+        # Add user message to chat history.
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        # Display the user message in the chat container.
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    # Display the "wrong" response and add it to history.
-    with st.chat_message("assistant"):
-        st.markdown(wrong_reply)
-        st.session_state.messages.append({"role": "assistant", "content": wrong_reply})
+        # Generate a response using the transformer model.
+        # We add the user's prompt as the start of the text to be generated.
+        # The 'max_length' parameter controls the length of the response.
+        with st.spinner("Thinking..."):
+            try:
+                # The model generates a complete sentence or paragraph based on the prompt.
+                response = generator(prompt, max_length=50, num_return_sequences=1)
+                
+                # The generated text includes the original prompt, so we need to
+                # extract just the new part. This is a simple but effective way.
+                generated_text = response[0]['generated_text']
+                reply = generated_text[len(prompt):].strip()
+
+                if not reply:
+                    reply = "I'm not sure how to respond to that. Can you rephrase?"
+            except Exception as e:
+                reply = f"An error occurred while generating a response: {e}"
+
+        # Display the new response and add it to history.
+        with st.chat_message("assistant"):
+            st.markdown(reply)
+            st.session_state.messages.append({"role": "assistant", "content": reply})
+
