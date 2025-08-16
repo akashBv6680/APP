@@ -29,14 +29,22 @@ def load_model():
     This function loads the Hugging Face DiffusionPipeline for image-to-video.
     It's decorated with `@st.cache_resource` to ensure the model is loaded only once
     across all user sessions, which is crucial for performance.
+
+    Note: The original model `damo-vilab/modelscope-damo-image-to-video`
+    was too large for many hosting environments. We are now using a more
+    memory-efficient alternative, `timbrooks/GigaGAN-Image2Video`.
     """
-    model_id = "damo-vilab/modelscope-damo-image-to-video"
+    model_id = "timbrooks/GigaGAN-Image2Video"
     
     # Load the pipeline with half-precision floating point numbers (fp16)
     # to reduce memory usage and speed up inference.
     try:
-        pipeline = DiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16, variant="fp16")
-        pipeline.scheduler = pipeline.scheduler.from_config(pipeline.scheduler.config)
+        pipeline = DiffusionPipeline.from_pretrained(
+            model_id,
+            torch_dtype=torch.float16,
+            variant="fp16",
+            use_safetensors=True
+        )
         
         # Move the pipeline to the GPU if a CUDA-enabled GPU is available.
         # Otherwise, fall back to the CPU.
@@ -69,12 +77,10 @@ if uploaded_file is not None and pipe is not None:
         with st.spinner("Generating video... This may take a few moments."):
             try:
                 # Generate video frames from the uploaded image.
-                # `num_frames` controls the video length, and `motion_advect_scale`
-                # controls the intensity of the motion.
+                # `num_frames` controls the video length.
                 video_frames = pipe(
                     image=image,
-                    num_frames=25,
-                    motion_advect_scale=0.5
+                    num_frames=25
                 ).frames
                 
                 # Use an in-memory buffer to save the video, avoiding disk I/O.
